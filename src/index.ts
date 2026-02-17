@@ -29,7 +29,7 @@ export default {
     const url = new URL(request.url);
 
     // Drop requests not targeting the /update path to reduce logging noise
-    if (url.pathname !== "/update") {
+    if (url.pathname !== "/update" && url.pathname !== "/nic/update") {
       return new Response("Bad Request", { status: 400 });
     }
 

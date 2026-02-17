@@ -25,10 +25,22 @@ beforeEach(() => {
 });
 
 describe("Worker handler", () => {
-  it("returns 400 for requests not matching /update path", async () => {
+  it("returns 400 for requests not matching /update or /nic/update path", async () => {
     const resp = await handler.fetch(new Request("https://example.com/"));
     expect(resp.status).toBe(400);
     expect(await resp.text()).toBe("Bad Request");
+
+    const resp2 = await handler.fetch(new Request("https://example.com/other"));
+    expect(resp2.status).toBe(400);
+    expect(await resp2.text()).toBe("Bad Request");
+  });
+
+  it("accepts requests on /nic/update path", async () => {
+    const resp = await handler.fetch(new Request("https://example.com/nic/update"));
+    expect(resp.status).toBe(400);
+    const body = await resp.text();
+    // Should pass path check and fail on missing fields, not "Bad Request"
+    expect(body).toContain("hostname");
   });
 
   it("returns 400 with missing fields when no params", async () => {

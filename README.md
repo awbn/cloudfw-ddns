@@ -25,7 +25,7 @@ npx wrangler deploy
 
 ## Usage
 
-The worker accepts requests on any path with the following parameters:
+The worker accepts requests on `/update` (and `/nic/update` to retain ddclient compatibility) with the following parameters:
 
 | Parameter | Source | Description |
 |-----------|--------|-------------|
