@@ -27,6 +27,12 @@ function parseBasicAuth(header: string | null): { username: string; password: st
 export default {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
+
+    // Drop requests not targeting the /update path to reduce logging noise
+    if (url.pathname !== "/update") {
+      return new Response("Bad Request", { status: 400 });
+    }
+
     const params = url.searchParams;
 
     const callerIp = request.headers.get("CF-Connecting-IP") || "unknown";

@@ -5,7 +5,7 @@ function makeRequest(
   params: Record<string, string> = {},
   auth?: { username: string; password: string }
 ): Request {
-  const url = new URL("https://example.com/cfwd/update");
+  const url = new URL("https://example.com/update");
   for (const [k, v] of Object.entries(params)) {
     url.searchParams.set(k, v);
   }
@@ -25,8 +25,14 @@ beforeEach(() => {
 });
 
 describe("Worker handler", () => {
-  it("returns 400 with missing fields when no params", async () => {
+  it("returns 400 for requests not matching /update path", async () => {
     const resp = await handler.fetch(new Request("https://example.com/"));
+    expect(resp.status).toBe(400);
+    expect(await resp.text()).toBe("Bad Request");
+  });
+
+  it("returns 400 with missing fields when no params", async () => {
+    const resp = await handler.fetch(new Request("https://example.com/update"));
     expect(resp.status).toBe(400);
     const body = await resp.text();
     expect(body).toContain("hostname");
@@ -57,7 +63,7 @@ describe("Worker handler", () => {
   });
 
   it("returns 400 with malformed base64 auth", async () => {
-    const req = new Request("https://example.com/cfwd/update?hostname=fw&myip=1.2.3.4", {
+    const req = new Request("https://example.com/update?hostname=fw&myip=1.2.3.4", {
       headers: { Authorization: "Basic %%%invalid-base64%%%" },
     });
     const resp = await handler.fetch(req);

@@ -51,7 +51,7 @@ curl "https://your-worker.workers.dev/cfwd/update?hostname=label:env=prod&myip=1
 ### curl Example
 
 ```bash
-curl "https://your-worker.workers.dev/cfwd/update?hostname=my-firewall&myip=1.2.3.4" \
+curl "https://your-worker.workers.dev/update?hostname=my-firewall&myip=1.2.3.4" \
   -u "digitalocean:dop_v1_your_api_token"
 ```
 
@@ -63,9 +63,11 @@ provider default@cloudflare-ddns {
     username = digitalocean
     password = dop_v1_your_api_token
     ddns-server = your-worker.workers.dev
-    ddns-path = "/cfwd/update?hostname=%h&myip=%i"
+    ddns-path = "/update?hostname=%h&ip=%i"
 }
 ```
+> [!TIP]
+> Some routers may combine the server and path. In that case, enter `your-worker.workers.dev/update?hostname=%h&ip=%i`
 
 ### ddclient Configuration
 
