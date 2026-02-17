@@ -28,6 +28,8 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - uses: actions/checkout@v6
+      - name: Install Wrangler v4
+        run: npm install --save-dev wrangler@4
       - name: Build & Deploy Worker
         uses: cloudflare/wrangler-action@v3
         with:
