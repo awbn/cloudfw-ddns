@@ -4,6 +4,8 @@ A Cloudflare Worker that updates cloud firewall rules with a dynamic IP address.
 
 Use this to restrict firewall access (e.g., SSH) to a home IP that changes periodically. When your IP changes, your router's DDNS client calls this worker, which updates the firewall rules on your cloud provider.
 
+The worker itself is effectively a stateless proxy. It uses the credentials (an API Key) passed in by the DDNS client to call into the provider's firewall API and update the specified rule(s).s
+
 ## Supported Providers
 
 - **DigitalOcean** Cloud Firewalls (`digitalocean` or `do`)
@@ -11,9 +13,9 @@ Use this to restrict firewall access (e.g., SSH) to a home IP that changes perio
 
 ## How It Works
 
-1. Your router detects an IP change and sends a request to the worker
+1. Your router (or other DDNS client) detects an IP change and sends a request to the worker
 2. The worker validates the IP (must be public IPv4)
-3. The worker authenticates with the cloud provider using the supplied API token
+3. The worker authenticates with the cloud provider using the API token supplied by the DDNS client via basic auth
 4. All **inbound** rules on the specified firewall are updated to allow only the new IP. Outbound rules remain unchanged.
 
 ## Deployment
@@ -95,6 +97,13 @@ my-firewall
 npm install
 npm run dev        # Start local dev server
 npm test           # Run tests
+```
+
+Test the flow against the local dev server (note: this WILL update the firewall rule):
+
+```bash
+curl "http://localhost:8787/update?hostname=my-firewall&ip=1.2.3.4" \
+  -u "digitalocean:dop_v1_your_api_token"
 ```
 
 ## Provider API Tokens
