@@ -1,4 +1,5 @@
-import { FirewallProvider, AuthError, UpdateError, ProviderError } from "./types";
+import { FirewallProvider, UpdateError, ProviderError } from "./types";
+import { authorizedFetch, looksLikeUuid } from "./http";
 
 const API_BASE = "https://api.digitalocean.com/v2";
 
@@ -24,25 +25,8 @@ interface DOOutboundRule {
   destinations: { addresses: string[]; [key: string]: unknown };
 }
 
-async function doFetch(url: string, token: string, options: RequestInit = {}): Promise<Response> {
-  const resp = await fetch(url, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      ...(options.headers as Record<string, string> | undefined),
-    },
-  });
-
-  if (resp.status === 401) {
-    throw new AuthError();
-  }
-
-  return resp;
-}
-
-function looksLikeUuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+function doFetch(url: string, token: string, options: RequestInit = {}): Promise<Response> {
+  return authorizedFetch(url, token, options);
 }
 
 async function resolveFirewallId(token: string, nameOrId: string): Promise<string> {
