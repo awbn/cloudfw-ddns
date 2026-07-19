@@ -1,4 +1,5 @@
-import { FirewallProvider, AuthError, UpdateError, ProviderError } from "./types";
+import { FirewallProvider, UpdateError, ProviderError } from "./types";
+import { authorizedFetch } from "./http";
 
 const API_BASE = "https://api.hetzner.cloud/v1";
 
@@ -17,21 +18,9 @@ interface HetznerRule {
   description?: string;
 }
 
-async function hetznerFetch(url: string, token: string, options: RequestInit = {}): Promise<Response> {
-  const resp = await fetch(url, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      ...(options.headers as Record<string, string> | undefined),
-    },
-  });
-
-  if (resp.status === 401 || resp.status === 403) {
-    throw new AuthError();
-  }
-
-  return resp;
+function hetznerFetch(url: string, token: string, options: RequestInit = {}): Promise<Response> {
+  // Hetzner returns 403 (not just 401) for an invalid/insufficient token.
+  return authorizedFetch(url, token, options, { authFailureStatuses: [401, 403] });
 }
 
 function isNumericId(value: string): boolean {
