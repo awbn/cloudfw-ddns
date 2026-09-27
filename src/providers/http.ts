@@ -1,4 +1,7 @@
-import { AuthError } from "./types";
+import { AuthError, ProviderError } from "./types";
+
+/** Redirect status codes that carry a `Location` header (304 is not one). */
+const REDIRECT_STATUSES = [301, 302, 303, 307, 308];
 
 export interface AuthorizedFetchOptions {
   /**
@@ -17,6 +20,10 @@ export interface AuthorizedFetchOptions {
  * provider's auth-failure responses into an {@link AuthError}. Every provider
  * that authenticates with a bearer token should build on this rather than
  * hand-rolling its own `fetch` wrapper.
+ *
+ * Note: the Workers runtime only accepts `redirect: "follow"` or `"manual"` —
+ * `"error"` throws a `TypeError` from `fetch` itself — so redirects are taken
+ * in `"manual"` mode and rejected here instead.
  */
 export async function authorizedFetch(
   url: string,
@@ -25,8 +32,8 @@ export async function authorizedFetch(
   { authFailureStatuses = [401] }: AuthorizedFetchOptions = {}
 ): Promise<Response> {
   const resp = await fetch(url, {
-    redirect: "error",
     ...options,
+    redirect: "manual",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
@@ -34,6 +41,10 @@ export async function authorizedFetch(
       ...(options.headers as Record<string, string> | undefined),
     },
   });
+
+  if (REDIRECT_STATUSES.includes(resp.status)) {
+    throw new ProviderError(`Unexpected redirect (${resp.status}) from ${new URL(url).host}`);
+  }
 
   if (authFailureStatuses.includes(resp.status)) {
     throw new AuthError();
