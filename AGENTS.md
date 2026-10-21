@@ -20,6 +20,11 @@ point: `src/index.ts`. Providers live in `src/providers/`.
   `AuthError` / `UpdateError` / `ProviderError` taxonomy.
 - `src/providers/http.ts` — `authorizedFetch` (Bearer auth, no redirects, auth
   errors) and `looksLikeUuid`. Build providers on these, not raw `fetch`.
+- `src/providers/labels.ts` — `parseLabelSelector` for the shared `l:`/`label:`
+  hostname syntax.
+- `src/providers/batch.ts` — `updateEach`, for providers that update several
+  targets per request: continues past failures, aborts on `AuthError`, and
+  reports a combined error.
 
 ## Runtime constraints
 

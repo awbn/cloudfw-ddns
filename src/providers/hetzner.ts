@@ -1,5 +1,7 @@
 import { FirewallProvider, UpdateError, ProviderError } from "./types";
 import { authorizedFetch } from "./http";
+import { parseLabelSelector } from "./labels";
+import { updateEach } from "./batch";
 
 const API_BASE = "https://api.hetzner.cloud/v1";
 
@@ -25,19 +27,6 @@ function hetznerFetch(url: string, token: string, options: RequestInit = {}): Pr
 
 function isNumericId(value: string): boolean {
   return /^\d+$/.test(value);
-}
-
-function parseLabelSelector(input: string): string | null {
-  let selector: string | null = null;
-  if (input.startsWith("label:")) {
-    selector = input.slice(6);
-  } else if (input.startsWith("l:")) {
-    selector = input.slice(2);
-  }
-  if (selector !== null && !/^[a-zA-Z0-9_.\/\-]+(=[a-zA-Z0-9_.\/\-]+)?(,[a-zA-Z0-9_.\/\-]+(=[a-zA-Z0-9_.\/\-]+)?)*$/.test(selector)) {
-    throw new UpdateError("Invalid label selector format");
-  }
-  return selector;
 }
 
 interface ResolvedFirewall {
@@ -116,8 +105,10 @@ export class HetznerProvider implements FirewallProvider {
   async updateFirewall(token: string, firewallNameOrId: string, ip: string): Promise<void> {
     const firewalls = await resolveFirewalls(token, firewallNameOrId);
 
-    for (const fw of firewalls) {
-      await updateSingleFirewall(token, fw.id, ip, fw.name);
-    }
+    await updateEach(
+      firewalls,
+      (fw) => `firewall ${fw.name} (${fw.id})`,
+      (fw) => updateSingleFirewall(token, fw.id, ip, fw.name)
+    );
   }
 }

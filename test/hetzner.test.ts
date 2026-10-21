@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { HetznerProvider } from "../src/providers/hetzner";
-import { AuthError, UpdateError } from "../src/providers/types";
+import { AuthError, ProviderError, UpdateError } from "../src/providers/types";
 
 const provider = new HetznerProvider();
 
@@ -156,5 +156,40 @@ describe("HetznerProvider", () => {
     await expect(provider.updateFirewall("token", "l:env=prod&malicious=true", "1.2.3.4")).rejects.toThrow(UpdateError);
     await expect(provider.updateFirewall("token", "l:", "1.2.3.4")).rejects.toThrow(UpdateError);
     await expect(provider.updateFirewall("token", "label:has spaces", "1.2.3.4")).rejects.toThrow(UpdateError);
+  });
+
+  it("keeps updating remaining label-matched firewalls when one fails, then reports it", async () => {
+    const fw2 = {
+      id: 20,
+      name: "fw-b",
+      rules: [{ direction: "in", protocol: "tcp", port: "22", source_ips: ["old/32"] }],
+    };
+
+    mockFetch([
+      { status: 200, body: { firewalls: [{ id: 10, name: "fw-a" }, { id: 20, name: "fw-b" }] } },
+      { status: 500 },
+      { status: 200, body: { firewall: fw2 } },
+      { status: 200, body: { actions: [] } },
+    ]);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const err = await provider.updateFirewall("token", "l:env=prod", "1.2.3.4").catch((e) => e);
+    expect(err).toBeInstanceOf(ProviderError);
+    expect(err.message).toContain("1 of 2 update(s) failed");
+    expect(err.message).toContain("fw-a");
+
+    const calls = (fetch as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(4);
+    expect(calls[3][0]).toContain("/firewalls/20/actions/set_rules");
+  });
+
+  it("stops at the first auth failure across label-matched firewalls", async () => {
+    mockFetch([
+      { status: 200, body: { firewalls: [{ id: 10, name: "fw-a" }, { id: 20, name: "fw-b" }] } },
+      { status: 403 },
+    ]);
+
+    await expect(provider.updateFirewall("token", "l:env=prod", "1.2.3.4")).rejects.toThrow(AuthError);
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 });

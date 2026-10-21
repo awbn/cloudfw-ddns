@@ -34,7 +34,7 @@ The worker accepts requests on `/update` (and `/nic/update` to retain ddclient c
 
 | Parameter | Source | Description |
 |-----------|--------|-------------|
-| `hostname` | Query string | Firewall name/ID, a Hetzner label selector (see below), or — for UpCloud — a server UUID, hostname, or title, optionally suffixed with `#<tag>` (see below) |
+| `hostname` | Query string | Firewall name/ID or a Hetzner label selector, or — for UpCloud — a server UUID, hostname, title, or label selector, optionally suffixed with `#<tag>` (see below) |
 | `myip` or `ip` | Query string | The new IPv4 address |
 | Username | Basic Auth | Provider name (`digitalocean`, `do`, `hetzner`, `hz`, `upcloud`, or `uc`) |
 | Password | Basic Auth | API token for the provider |
@@ -56,7 +56,7 @@ The recommended pattern uses these providers' ability to attach **multiple firew
 > [!TIP]
 > On UpCloud this separation isn't possible — a server has a single firewall — so the worker instead scopes updates with per-rule tags (see below).
 
-For **UpCloud**, firewall rules live on a server, so `hostname` identifies the server: pass its UUID, or its hostname/title (which is resolved to a UUID). See the UpCloud section below for how rules are selected.
+For **UpCloud**, firewall rules live on a server, so `hostname` identifies the server: pass its UUID, or its hostname/title (which is resolved to a UUID) — or a [label selector](#upcloud-label-selector) to update several servers at once. See the UpCloud section below for how rules are selected.
 
 ### UpCloud Rule Tags
 
@@ -79,6 +79,25 @@ curl "https://your-worker.workers.dev/update?hostname=ssh-box%23home&myip=1.2.3.
 > [!NOTE]
 > The `#` character in the `hostname` field is reserved as the tag delimiter, so remember to URL-encode it as `%23` in query strings.
 
+### UpCloud Label Selector
+
+To update several servers at once, target them by [server label](https://upcloud.com/docs/guides/labels/) with the same `l:` / `label:` prefix used for Hetzner. Separate multiple `key=value` terms with commas — a server must match **all** of them. The `#<tag>` suffix still applies, to every matched server.
+
+```bash
+# Update #ddns-tagged rules on every server labelled env=prod
+curl "https://your-worker.workers.dev/update?hostname=l:env=prod&myip=1.2.3.4" \
+  -u "uc:ucat_your_api_token"
+
+# Servers labelled env=prod AND role=bastion; update rules tagged #home
+curl "https://your-worker.workers.dev/update?hostname=label:env=prod,role=bastion%23home&myip=1.2.3.4" \
+  -u "uc:ucat_your_api_token"
+```
+
+Every matched server must carry at least one rule with the tag. The worker fetches all matched servers' rules first, and if any of them has no tagged inbound IPv4 rule, the request fails with a 400 **before any server is changed**.
+
+> [!NOTE]
+> Each matched server costs two API subrequests (read and write the rule chain), plus one to list servers. Cloudflare's free plan allows 50 subrequests per request, so a single update can cover roughly 24 servers there.
+
 ### Hetzner Label Selector
 
 For Hetzner, you can target multiple firewalls by label instead of name or ID. Prefix the hostname with `l:` or `label:` followed by a label selector. All matching firewalls will be updated.
@@ -92,6 +111,9 @@ curl "https://your-worker.workers.dev/update?hostname=l:env=prod&myip=1.2.3.4" \
 curl "https://your-worker.workers.dev/update?hostname=label:env=prod&myip=1.2.3.4" \
   -u "hz:your_api_token"
 ```
+
+> [!NOTE]
+> When a label selector matches several firewalls (Hetzner) or servers (UpCloud), they're updated one at a time. If one update fails, the worker carries on with the rest and then returns an error naming each target that failed. Updates are idempotent, so the DDNS client's next retry brings the failed ones up to date. An authentication failure stops the run immediately, since every target uses the same token.
 
 ### curl Example
 
