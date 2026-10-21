@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { UpCloudProvider } from "../src/providers/upcloud";
-import { AuthError, UpdateError } from "../src/providers/types";
+import { AuthError, ProviderError, UpdateError } from "../src/providers/types";
 
 const provider = new UpCloudProvider();
 
 const UUID = "00798b85-efdc-41ca-8021-f6ef457b8531";
+const UUID2 = "0063f3a4-4c5e-4d1b-9b0e-1f2a3b4c5d6e";
 
 function mockFetch(responses: Array<{ status: number; body?: unknown }>): void {
   const queue = [...responses];
@@ -50,6 +51,10 @@ function publicRule(overrides: object = {}) {
     source_address_end: "255.255.255.255",
     ...overrides,
   };
+}
+
+function serverList(...servers: object[]) {
+  return { servers: { server: servers } };
 }
 
 function putRulesOf(calls: any[], index: number) {
@@ -212,5 +217,116 @@ describe("UpCloudProvider", () => {
     await expect(provider.updateFirewall("ucat_token", UUID, "1.2.3.4")).rejects.toThrow(
       UpdateError
     );
+  });
+
+  describe("label selectors", () => {
+    const boxA = { uuid: UUID, hostname: "box-a", title: "Box A" };
+    const boxB = { uuid: UUID2, hostname: "box-b", title: "Box B" };
+
+    it("updates the tagged rules on every server matching an l: selector", async () => {
+      mockFetch([
+        { status: 200, body: serverList(boxA, boxB) },
+        { status: 200, body: rules(sshRule(), publicRule()) },
+        { status: 200, body: rules(publicRule(), sshRule()) },
+        { status: 204 },
+        { status: 204 },
+      ]);
+
+      await provider.updateFirewall("ucat_token", "l:env=prod", "1.2.3.4");
+
+      const calls = (fetch as ReturnType<typeof vi.fn>).mock.calls;
+      expect(calls).toHaveLength(5);
+      expect(calls[0][0]).toBe("https://api.upcloud.com/1.3/server?label=env%3Dprod");
+      // Both servers are planned (GET) before either is written (PUT).
+      expect(calls[1][0]).toBe(`https://api.upcloud.com/1.3/server/${UUID}/firewall_rule`);
+      expect(calls[2][0]).toBe(`https://api.upcloud.com/1.3/server/${UUID2}/firewall_rule`);
+      expect(calls[3][0]).toBe(`https://api.upcloud.com/1.3/server/${UUID}/firewall_rule`);
+      expect(calls[3][1].method).toBe("PUT");
+      expect(calls[4][0]).toBe(`https://api.upcloud.com/1.3/server/${UUID2}/firewall_rule`);
+      expect(calls[4][1].method).toBe("PUT");
+
+      const putA = putRulesOf(calls, 3);
+      expect(putA[0].source_address_start).toBe("1.2.3.4");
+      expect(putA[1].source_address_start).toBe("0.0.0.0");
+      const putB = putRulesOf(calls, 4);
+      expect(putB[0].source_address_start).toBe("0.0.0.0");
+      expect(putB[1].source_address_start).toBe("1.2.3.4");
+    });
+
+    it("sends each selector term as its own label parameter and honors a #tag suffix", async () => {
+      mockFetch([
+        { status: 200, body: serverList(boxA) },
+        { status: 200, body: rules(sshRule({ comment: "home #home" }), sshRule()) },
+        { status: 204 },
+      ]);
+
+      await provider.updateFirewall("ucat_token", "label:env=prod,bastion#home", "5.6.7.8");
+
+      const calls = (fetch as ReturnType<typeof vi.fn>).mock.calls;
+      expect(calls[0][0]).toBe("https://api.upcloud.com/1.3/server?label=env%3Dprod&label=bastion");
+
+      const putRules = putRulesOf(calls, 2);
+      // Only the #home rule is rewritten; the #ddns rule is left alone.
+      expect(putRules[0].source_address_start).toBe("5.6.7.8");
+      expect(putRules[1].source_address_start).toBe("9.9.9.9");
+    });
+
+    it("throws UpdateError when no servers match the label", async () => {
+      mockFetch([{ status: 200, body: serverList() }]);
+
+      await expect(provider.updateFirewall("ucat_token", "l:env=nope", "1.2.3.4")).rejects.toThrow(
+        UpdateError
+      );
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("writes nothing when any matched server lacks a tagged rule", async () => {
+      mockFetch([
+        { status: 200, body: serverList(boxA, boxB) },
+        { status: 200, body: rules(sshRule()) },
+        { status: 200, body: rules(publicRule()) },
+      ]);
+
+      await expect(provider.updateFirewall("ucat_token", "l:env=prod", "1.2.3.4")).rejects.toThrow(
+        /No inbound IPv4 rules tagged #ddns on server: box-b/
+      );
+
+      const calls = (fetch as ReturnType<typeof vi.fn>).mock.calls;
+      expect(calls).toHaveLength(3);
+      expect(calls.some((c: any[]) => c[1]?.method === "PUT")).toBe(false);
+    });
+
+    it("keeps updating remaining servers when one PUT fails, then reports it", async () => {
+      mockFetch([
+        { status: 200, body: serverList(boxA, boxB) },
+        { status: 200, body: rules(sshRule()) },
+        { status: 200, body: rules(sshRule()) },
+        { status: 500, body: "boom" },
+        { status: 204 },
+      ]);
+      vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const err = await provider.updateFirewall("ucat_token", "l:env=prod", "1.2.3.4").catch((e) => e);
+      expect(err).toBeInstanceOf(ProviderError);
+      expect(err.message).toContain("1 of 2 update(s) failed");
+      expect(err.message).toContain("box-a");
+
+      const calls = (fetch as ReturnType<typeof vi.fn>).mock.calls;
+      // The second server is still written despite the first PUT failing.
+      expect(calls).toHaveLength(5);
+      expect(calls[4][0]).toBe(`https://api.upcloud.com/1.3/server/${UUID2}/firewall_rule`);
+      expect(calls[4][1].method).toBe("PUT");
+    });
+
+    it("throws UpdateError for an invalid label selector without calling the API", async () => {
+      mockFetch([]);
+      await expect(provider.updateFirewall("ucat_token", "l:env=prod&x=y", "1.2.3.4")).rejects.toThrow(
+        UpdateError
+      );
+      await expect(provider.updateFirewall("ucat_token", "l:#home", "1.2.3.4")).rejects.toThrow(
+        UpdateError
+      );
+      expect(fetch).not.toHaveBeenCalled();
+    });
   });
 });
